@@ -1,6 +1,8 @@
 #!/bin/bash
-# 追加 BTF 和 dae 配置
-cat >> .config << 'EOF'
+# diy-part2.sh - 在 make defconfig 之前执行
+
+# 追加 BTF 和 dae 相关配置
+cat >> .config << 'CONF'
 CONFIG_KERNEL_DEBUG_INFO=y
 CONFIG_KERNEL_DEBUG_INFO_BTF=y
 CONFIG_KERNEL_DEBUG_INFO_REDUCED=n
@@ -13,4 +15,4 @@ CONFIG_PACKAGE_kmod-veth=y
 CONFIG_PACKAGE_kmod-sched-core=y
 CONFIG_PACKAGE_kmod-sched-bpf=y
 CONFIG_PACKAGE_kmod-nft-bridge=y
-EOF
+CONF
