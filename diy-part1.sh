@@ -1,8 +1,11 @@
 #!/bin/bash
-# diy-part1.sh - 在 feeds update 之前执行
+# diy-part1.sh
+# 执行时 pwd 为 openwrt/
 
-# 克隆 openwrt-dae，复制 dae 包到编译树
-git clone --depth 1 https://github.com/daeuniverse/openwrt-dae.git /tmp/openwrt-dae
-cp -r /tmp/openwrt-dae/dae openwrt/package/dae
-cp -r /tmp/openwrt-dae/dae-geoip openwrt/package/dae-geoip
-cp -r /tmp/openwrt-dae/dae-geosite openwrt/package/dae-geosite
+wget -q https://github.com/daeuniverse/openwrt-dae/archive/refs/heads/main.zip -O /tmp/openwrt-dae.zip
+unzip -q /tmp/openwrt-dae.zip -d /tmp/
+mv /tmp/openwrt-dae-main /tmp/openwrt-dae
+
+cp -r /tmp/openwrt-dae/dae package/dae
+cp -r /tmp/openwrt-dae/dae-geoip package/dae-geoip
+cp -r /tmp/openwrt-dae/dae-geosite package/dae-geosite
