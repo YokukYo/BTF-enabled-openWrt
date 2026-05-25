@@ -15,7 +15,7 @@ echo "Downloading dae from: $LATEST_URL"
 wget -q -O /tmp/dae.zip "$LATEST_URL"
 unzip -o /tmp/dae.zip -d /tmp/dae-bin
 
-DAE_BIN=$(find /tmp/dae-bin -name 'dae' -type f | head -1)
+DAE_BIN=$(find /tmp/dae-bin -name 'dae-linux-*' -type f | head -1)
 echo "Found binary: $DAE_BIN"
 cp "$DAE_BIN" package/dae/files/dae
 chmod +x package/dae/files/dae
