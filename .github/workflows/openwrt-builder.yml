@@ -1,5 +1,6 @@
 #
 # Build OpenWrt (official) with dae + BTF
+# 每次触发时检测上游是否有更新，有更新才编译
 #
 
 name: OpenWrt Builder (dae)
@@ -20,7 +21,40 @@ env:
   TZ: Asia/Shanghai
 
 jobs:
+  check:
+    runs-on: ubuntu-22.04
+    outputs:
+      need_build: ${{ steps.compare.outputs.need_build }}
+      latest_hash: ${{ steps.compare.outputs.latest_hash }}
+
+    steps:
+    - name: Get latest upstream commit hash
+      id: compare
+      run: |
+        LATEST=$(git ls-remote $REPO_URL refs/heads/$REPO_BRANCH | cut -f1)
+        echo "Latest upstream hash: $LATEST"
+        echo "latest_hash=$LATEST" >> $GITHUB_OUTPUT
+
+        # 尝试读取上次编译时保存的 hash
+        CACHED_HASH=""
+        if gh release view last-build-hash --repo ${{ github.repository }} 2>/dev/null; then
+          CACHED_HASH=$(gh release view last-build-hash --repo ${{ github.repository }} --json body -q .body 2>/dev/null || echo "")
+        fi
+        echo "Cached hash: $CACHED_HASH"
+
+        if [ "$LATEST" = "$CACHED_HASH" ]; then
+          echo "No upstream changes, skipping build"
+          echo "need_build=false" >> $GITHUB_OUTPUT
+        else
+          echo "Upstream changed, will build"
+          echo "need_build=true" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build:
+    needs: check
+    if: needs.check.outputs.need_build == 'true'
     runs-on: ubuntu-22.04
 
     steps:
@@ -54,12 +88,35 @@ jobs:
     - name: Verify pahole version
       run: pahole --version
 
+    - name: Cache download directory
+      uses: actions/cache@main
+      with:
+        path: /workdir/openwrt/dl
+        key: openwrt-dl-${{ env.REPO_BRANCH }}-${{ hashFiles('.config') }}
+        restore-keys: |
+          openwrt-dl-${{ env.REPO_BRANCH }}-
+
+    - name: Cache ccache
+      uses: actions/cache@main
+      with:
+        path: /workdir/.ccache
+        key: ccache-${{ env.REPO_BRANCH }}-${{ hashFiles('.config') }}
+        restore-keys: |
+          ccache-${{ env.REPO_BRANCH }}-
+
     - name: Clone source code
       working-directory: /workdir
       run: |
         df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+
+    - name: Setup ccache
+      run: |
+        mkdir -p /workdir/.ccache
+        export CCACHE_DIR=/workdir/.ccache
+        ccache --max-size=5G
+        ccache -z
 
     - name: Load custom feeds
       run: |
@@ -93,9 +150,10 @@ jobs:
     - name: Compile the firmware
       id: compile
       run: |
+        export CCACHE_DIR=/workdir/.ccache
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        make -j$(nproc) BUILD_LOG=1 CONFIG_CCACHE=y || make -j1 CONFIG_CCACHE=y || make -j1 V=s CONFIG_CCACHE=y
         echo "status=success" >> $GITHUB_OUTPUT
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
@@ -135,6 +193,7 @@ jobs:
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
         echo "OpenWrt 24.10 x86/64 with dae (BTF enabled)" >> release.txt
+        echo "Upstream commit: ${{ needs.check.outputs.latest_hash }}" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
@@ -146,6 +205,18 @@ jobs:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         body_path: release.txt
         files: ${{ env.FIRMWARE }}/*
+
+    - name: Save latest hash to release
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        gh release delete last-build-hash --repo ${{ github.repository }} --yes 2>/dev/null || true
+        gh release create last-build-hash \
+          --repo ${{ github.repository }} \
+          --title "last-build-hash" \
+          --notes "${{ needs.check.outputs.latest_hash }}" \
+          --prerelease
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@main
