@@ -1,234 +1,224 @@
-#
-# Build OpenWrt (official) with dae + BTF
-# 每次触发时检测上游是否有更新，有更新才编译
-#
-
 name: OpenWrt Builder (dae)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
+  repository_dispatch:
 
 env:
   REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
+
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
-  UPLOAD_BIN_DIR: false
-  UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
+
   TZ: Asia/Shanghai
 
 jobs:
   check:
     runs-on: ubuntu-22.04
+
     outputs:
       need_build: ${{ steps.compare.outputs.need_build }}
       latest_hash: ${{ steps.compare.outputs.latest_hash }}
 
     steps:
-    - name: Get latest upstream commit hash
-      id: compare
-      run: |
-        LATEST=$(git ls-remote $REPO_URL refs/heads/$REPO_BRANCH | cut -f1)
-        echo "Latest upstream hash: $LATEST"
-        echo "latest_hash=$LATEST" >> $GITHUB_OUTPUT
+      - name: Compare upstream hash
+        id: compare
+        run: |
+          LATEST=$(git ls-remote $REPO_URL refs/heads/$REPO_BRANCH | cut -f1)
 
-        # 尝试读取上次编译时保存的 hash
-        CACHED_HASH=""
-        if gh release view last-build-hash --repo ${{ github.repository }} 2>/dev/null; then
-          CACHED_HASH=$(gh release view last-build-hash --repo ${{ github.repository }} --json body -q .body 2>/dev/null || echo "")
-        fi
-        echo "Cached hash: $CACHED_HASH"
+          echo "latest_hash=$LATEST" >> $GITHUB_OUTPUT
 
-        if [ "$LATEST" = "$CACHED_HASH" ]; then
-          echo "No upstream changes, skipping build"
-          echo "need_build=false" >> $GITHUB_OUTPUT
-        else
-          echo "Upstream changed, will build"
-          echo "need_build=true" >> $GITHUB_OUTPUT
-        fi
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OLD=""
+
+          if gh release view last-build-hash \
+            --repo ${{ github.repository }} >/dev/null 2>&1; then
+
+            OLD=$(gh release view last-build-hash \
+              --repo ${{ github.repository }} \
+              --json body \
+              -q .body)
+          fi
+
+          if [ "$LATEST" = "$OLD" ]; then
+            echo "need_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "need_build=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     needs: check
+
     if: needs.check.outputs.need_build == 'true'
+
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
 
-    - name: Free Disk Space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: true
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        swap-storage: true
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Initialization environment
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
-        sudo -E apt-get -qq update
-        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev dwarves
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
-        sudo timedatectl set-timezone "$TZ"
-        sudo mkdir -p /workdir
-        sudo chown $USER:$GROUPS /workdir
+      - name: Free disk
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
 
-    - name: Verify pahole version
-      run: pahole --version
+      - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
 
-    - name: Cache download directory
-      uses: actions/cache@main
-      with:
-        path: /workdir/openwrt/dl
-        key: openwrt-dl-${{ env.REPO_BRANCH }}-${{ hashFiles('.config') }}
-        restore-keys: |
-          openwrt-dl-${{ env.REPO_BRANCH }}-
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            g++ \
+            gawk \
+            gcc-multilib \
+            g++-multilib \
+            gettext \
+            git \
+            libncurses5-dev \
+            libssl-dev \
+            python3 \
+            python3-pyelftools \
+            rsync \
+            unzip \
+            zlib1g-dev \
+            file \
+            wget \
+            llvm \
+            curl \
+            ccache \
+            dwarves
 
-    - name: Cache ccache
-      uses: actions/cache@main
-      with:
-        path: /workdir/.ccache
-        key: ccache-${{ env.REPO_BRANCH }}-${{ hashFiles('.config') }}
-        restore-keys: |
-          ccache-${{ env.REPO_BRANCH }}-
+          sudo timedatectl set-timezone "$TZ"
 
-    - name: Clone source code
-      working-directory: /workdir
-      run: |
-        df -hT $PWD
-        git clone $REPO_URL -b $REPO_BRANCH openwrt
-        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
+      - name: Cache dl
+        uses: actions/cache@v4
+        with:
+          path: /workdir/openwrt/dl
+          key: openwrt-dl-${{ env.REPO_BRANCH }}
 
-    - name: Setup ccache
-      run: |
-        mkdir -p /workdir/.ccache
-        export CCACHE_DIR=/workdir/.ccache
-        ccache --max-size=5G
-        ccache -z
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /workdir/.ccache
+          key: openwrt-ccache-${{ env.REPO_BRANCH }}
 
-    - name: Load custom feeds
-      run: |
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
+      - name: Clone source
+        run: |
+          mkdir -p /workdir
 
-    - name: Update feeds
-      run: cd openwrt && ./scripts/feeds update -a
+          cd /workdir
 
-    - name: Install feeds
-      run: cd openwrt && ./scripts/feeds install -a
+          git clone \
+            --depth=1 \
+            $REPO_URL \
+            -b $REPO_BRANCH \
+            openwrt
 
-    - name: Load custom configuration
-      run: |
-        [ -e files ] && mv files openwrt/files
-        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
+          ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
-    - name: Download package
-      id: package
-      run: |
-        cd openwrt
-        make defconfig
-        make download -j8
-        find dl -size -1024c -exec ls -l {} \;
-        find dl -size -1024c -exec rm -f {} \;
+      - name: Setup ccache
+        run: |
+          mkdir -p /workdir/.ccache
 
-    - name: Compile the firmware
-      id: compile
-      run: |
-        export CCACHE_DIR=/workdir/.ccache
-        cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) BUILD_LOG=1 CONFIG_CCACHE=y || make -j1 CONFIG_CCACHE=y || make -j1 V=s CONFIG_CCACHE=y
-        echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
-        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+          echo "max_size = 5.0G" > /workdir/.ccache/ccache.conf
 
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
+      - name: Load custom feeds
+        run: |
+          chmod +x $DIY_P1_SH
 
-    - name: Upload bin directory
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
+          cd openwrt
 
-    - name: Organize files
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-      run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
+          $GITHUB_WORKSPACE/$DIY_P1_SH
 
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
-      with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
+      - name: Update feeds
+        run: |
+          cd openwrt
 
-    - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "OpenWrt 24.10 x86/64 with dae (BTF enabled)" >> release.txt
-        echo "Upstream commit: ${{ needs.check.outputs.latest_hash }}" >> release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
+          ./scripts/feeds update -a
 
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@master
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
+      - name: Install feeds
+        run: |
+          cd openwrt
 
-    - name: Save latest hash to release
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        gh release delete last-build-hash --repo ${{ github.repository }} --yes 2>/dev/null || true
-        gh release create last-build-hash \
-          --repo ${{ github.repository }} \
-          --title "last-build-hash" \
-          --notes "${{ needs.check.outputs.latest_hash }}" \
-          --prerelease
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ./scripts/feeds install -a
 
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@main
-      with:
-        retain_days: 0
-        keep_minimum_runs: 2
+      - name: Load config
+        run: |
+          mv $CONFIG_FILE openwrt/.config
 
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@master
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 3
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          chmod +x $DIY_P2_SH
+
+          cd openwrt
+
+          $GITHUB_WORKSPACE/$DIY_P2_SH
+
+      - name: Download packages
+        run: |
+          cd openwrt
+
+          make defconfig
+
+          make download -j8
+
+      - name: Compile
+        run: |
+          export CCACHE_DIR=/workdir/.ccache
+
+          cd openwrt
+
+          make -j$(nproc) \
+            BUILD_LOG=1 \
+            CONFIG_CCACHE=y \
+          || make -j1 V=s
+
+      - name: Organize firmware
+        run: |
+          cd openwrt/bin/targets/*/*
+
+          rm -rf packages
+
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt_firmware
+          path: ${{ env.FIRMWARE }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: openwrt-${{ github.run_number }}
+          files: ${{ env.FIRMWARE }}/*
+          body: |
+            OpenWrt 24.10
+            dae enabled
+            BTF enabled
+
+      - name: Save upstream hash
+        run: |
+          gh release delete last-build-hash \
+            --repo ${{ github.repository }} \
+            --yes || true
+
+          gh release create last-build-hash \
+            --repo ${{ github.repository }} \
+            --title "last-build-hash" \
+            --notes "${{ needs.check.outputs.latest_hash }}" \
+            --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
