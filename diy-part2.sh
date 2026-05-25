@@ -50,7 +50,7 @@ CONFIG_PACKAGE_kmod-tcp-bbr=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 
 # APK Package Manager (Alternative package manager)
-CONFIG_PACKAGE_apk=y
+CONFIG_USE_APK=y
 CONFIG_PACKAGE_apk-mbedtls=y
 
 # Web Interface (LuCI SSL)
