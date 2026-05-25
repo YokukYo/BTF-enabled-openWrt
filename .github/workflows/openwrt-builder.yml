@@ -48,6 +48,8 @@ jobs:
     needs: check
     if: needs.check.outputs.need_build == 'true'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
 
