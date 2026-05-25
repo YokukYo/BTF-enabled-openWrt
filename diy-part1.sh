@@ -3,26 +3,23 @@
 # 执行时 pwd 为 openwrt/
 set -e
 
-# 创建 dae 包目录结构
 mkdir -p package/dae/files
 
-# 获取 dae 最新 release 的下载链接
 LATEST_URL=$(curl -s https://api.github.com/repos/daeuniverse/dae/releases/latest \
   | grep browser_download_url \
   | grep linux-x86_64.zip \
+  | grep -v dgst \
   | cut -d '"' -f 4)
 
 echo "Downloading dae from: $LATEST_URL"
 wget -q -O /tmp/dae.zip "$LATEST_URL"
 unzip -o /tmp/dae.zip -d /tmp/dae-bin
 
-# 找到解压出来的 dae 二进制（文件名可能带版本号）
 DAE_BIN=$(find /tmp/dae-bin -name 'dae' -type f | head -1)
 echo "Found binary: $DAE_BIN"
 cp "$DAE_BIN" package/dae/files/dae
 chmod +x package/dae/files/dae
 
-# 写入 init.d 启动脚本
 cat > package/dae/files/dae.init << 'INIT'
 #!/bin/sh /etc/rc.common
 START=99
@@ -45,7 +42,6 @@ INIT
 
 chmod +x package/dae/files/dae.init
 
-# 写入 OpenWrt 包 Makefile
 cat > package/dae/Makefile << 'MAKEFILE'
 include $(TOPDIR)/rules.mk
 
