@@ -1,3 +1,3 @@
 #!/bin/bash
 
-mkdir -p package/dae
+mkdir -p package/dae/files
