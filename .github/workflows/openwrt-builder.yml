@@ -1,18 +1,16 @@
 #
-# Build ImmortalWrt with dae (BTF enabled)
-# Based on https://github.com/P3TERX/Actions-OpenWrt
+# Build OpenWrt (official) with dae + BTF
 #
 
-name: ImmortalWrt Builder (dae)
+name: OpenWrt Builder (dae)
 
 on:
   repository_dispatch:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_URL: https://github.com/openwrt/openwrt
   REPO_BRANCH: openwrt-24.10
-  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
@@ -54,9 +52,7 @@ jobs:
         sudo chown $USER:$GROUPS /workdir
 
     - name: Verify pahole version
-      run: |
-        pahole --version
-        # 需要 >= 1.21，ubuntu-22.04 自带版本通常满足
+      run: pahole --version
 
     - name: Clone source code
       working-directory: /workdir
@@ -67,7 +63,6 @@ jobs:
 
     - name: Load custom feeds
       run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P1_SH
@@ -139,7 +134,7 @@ jobs:
       run: |
         echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
         touch release.txt
-        echo "ImmortalWrt 24.10 x86/64 with dae (BTF enabled)" >> release.txt
+        echo "OpenWrt 24.10 x86/64 with dae (BTF enabled)" >> release.txt
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload firmware to release
